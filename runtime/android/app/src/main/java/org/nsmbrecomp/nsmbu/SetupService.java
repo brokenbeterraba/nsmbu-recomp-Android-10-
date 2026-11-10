@@ -86,8 +86,12 @@ public class SetupService extends Service {
         power = getSystemService(PowerManager.class);
         thermal = power.getCurrentThermalStatus();
         power.addThermalStatusListener(thermalListener);
-        Intent initialBattery = registerReceiver(batteryListener,
-                new IntentFilter(Intent.ACTION_BATTERY_CHANGED), Context.RECEIVER_NOT_EXPORTED);
+        // ACTION_BATTERY_CHANGED is a protected system broadcast. The export flag exists from Android 13
+        // (API 33); Android 12 has only the two-argument form, which behaves the same for system broadcasts.
+        IntentFilter batteryFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        Intent initialBattery = Build.VERSION.SDK_INT >= 33
+                ? registerReceiver(batteryListener, batteryFilter, Context.RECEIVER_NOT_EXPORTED)
+                : registerReceiver(batteryListener, batteryFilter);
         if (initialBattery != null) updateBattery(initialBattery);
         wake = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "nsmbu:setup");
         wake.setReferenceCounted(false);

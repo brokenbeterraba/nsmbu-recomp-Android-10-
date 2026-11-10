@@ -11,7 +11,7 @@ android {
     ndkVersion "30.0.16248370"
     defaultConfig {
         applicationId "org.nsmbrecomp.nsmbu"
-        minSdk 33
+        minSdk 31
         targetSdk 36
         versionCode providers.gradleProperty('nsmbuVersionCode').map { it as int }.getOrElse(1)
         versionName providers.gradleProperty('nsmbuVersionName').getOrElse('0.1')

@@ -11,7 +11,8 @@ Other platforms: [../README.md](../README.md).
 
 ## What you need
 
-- A 64-bit Android device with Android 13 or newer and Vulkan 1.1 or newer.
+- A 64-bit Android device with Android 12 or newer and Vulkan 1.1 or newer.
+  Android 12 specifics (older Adreno phones, 4 GB of memory): [android12.md](android12.md).
 - A custom driver such as Mesa Turnip if your Adreno driver is too old (see [Android GPU support](../../developer/android/gpu.md)).
 - A few GB of free storage while setup runs.
 - Your own New Super Mario Bros. U for Wii U, as an extracted game folder, a Cemu `.wua` archive, or a `.wud`/`.wux` disc image with its keys.

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Android: the app installs and starts on Android 12 (API 31/32), not only Android 13 and newer.
+  The minimum is now `minSdk 31`, and the manifest asks for Vulkan 1.1 instead of 1.3 (the renderer already
+  falls back to render passes when the driver has no dynamic rendering).
+  On Android 12 the phone vibration uses `AudioAttributes`, the setup service registers its battery receiver
+  without the Android 13 export flag, the notification permission is only requested on Android 13+, and the
+  performance hint session is looked up at run time, so the game library still loads without it.
+
 ## [0.9.1] - 2026-11-07
 
 ### Fixed

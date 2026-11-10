@@ -2,8 +2,9 @@
 
 #include "core/env.h"
 #ifdef __ANDROID__
-#include <android/performance_hint.h>
+#include <android/api-level.h>
 #include <android/thermal.h>
+#include <dlfcn.h>
 #include <jni.h>
 #include <sched.h>
 #include <time.h>
@@ -28,7 +29,37 @@ namespace {
 std::mutex g_mu;
 std::vector<int32_t> g_tids;
 bool g_changed = false;
-APerformanceHintSession* g_session = nullptr;
+// The performance hint API (APerformanceHint_*) is Android 13 (API 33) and newer. Linking against it would
+// make the whole game library fail to load on Android 12 ("cannot locate symbol"), so the functions are looked
+// up in libandroid.so at run time. Without them there is no hint session, which only costs a scheduling hint.
+// The opaque APerformanceHintManager / APerformanceHintSession pointers travel as void*.
+struct HintApi {
+    void* (*get_manager)() = nullptr;
+    void* (*create_session)(void* manager, const int32_t* thread_ids, size_t size, int64_t target_ns) = nullptr;
+    int (*update_target)(void* session, int64_t target_ns) = nullptr;
+    int (*report_actual)(void* session, int64_t actual_ns) = nullptr;
+    void (*close_session)(void* session) = nullptr;
+    bool ok() const { return get_manager && create_session && update_target && report_actual && close_session; }
+};
+
+const HintApi& hint_api() {
+    static const HintApi api = [] {
+        HintApi a;
+        if (android_get_device_api_level() < 33) return a;
+        void* lib = dlopen("libandroid.so", RTLD_NOW);
+        if (!lib) return a;
+        a.get_manager = reinterpret_cast<decltype(a.get_manager)>(dlsym(lib, "APerformanceHint_getManager"));
+        a.create_session = reinterpret_cast<decltype(a.create_session)>(dlsym(lib, "APerformanceHint_createSession"));
+        a.update_target = reinterpret_cast<decltype(a.update_target)>(dlsym(lib, "APerformanceHint_updateTargetWorkDuration"));
+        a.report_actual = reinterpret_cast<decltype(a.report_actual)>(dlsym(lib, "APerformanceHint_reportActualWorkDuration"));
+        a.close_session = reinterpret_cast<decltype(a.close_session)>(dlsym(lib, "APerformanceHint_closeSession"));
+        if (!a.ok()) a = HintApi{};
+        return a;
+    }();
+    return api;
+}
+
+void* g_session = nullptr;
 int64_t g_target = 0;
 
 std::atomic<bool> g_chosen{true};
@@ -222,20 +253,23 @@ void frame_done() {
     if (g_changed) {
 
         g_changed = false;
-        if (g_session) APerformanceHint_closeSession(g_session);
+        const HintApi& hint = hint_api();
+        if (g_session && hint.ok()) hint.close_session(g_session);
         g_session = nullptr;
-        if (APerformanceHintManager* m = APerformanceHint_getManager())
-            g_session = APerformanceHint_createSession(m, g_tids.data(), g_tids.size(), target);
+        if (hint.ok())
+            if (void* m = hint.get_manager())
+                g_session = hint.create_session(m, g_tids.data(), g_tids.size(), target);
         g_target = target;
-        LOG("[perf] performance hint session for %zu threads: %s", g_tids.size(), g_session ? "on" : "unavailable");
+        LOG("[perf] performance hint session for %zu threads: %s", g_tids.size(),
+            g_session ? "on" : hint.ok() ? "unavailable" : "unavailable (needs Android 13)");
     }
     if (g_session && target != g_target) {
-        APerformanceHint_updateTargetWorkDuration(g_session, target);
+        hint_api().update_target(g_session, target);
         g_target = target;
     }
 
     if (g_session && interval > 0 && interval < 1'000'000'000)
-        APerformanceHint_reportActualWorkDuration(g_session, interval);
+        hint_api().report_actual(g_session, interval);
 }
 }  // namespace perf_hint
 

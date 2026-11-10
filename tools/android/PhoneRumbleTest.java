@@ -22,5 +22,14 @@ public final class PhoneRumbleTest {
         check(noHardware.manager.vibrator.calls==0);
         Context noService=new Context();noService.manager=null;
         PhoneRumble missing=new PhoneRumble(noService);missing.setActive(true);missing.update(65535);
+        // Android 12 has no VibrationAttributes: the AudioAttributes overload carries the same media usage.
+        Build.VERSION.SDK_INT=31;
+        try {
+            Context old=new Context();Vibrator ov=old.manager.vibrator;
+            PhoneRumble legacy=new PhoneRumble(old);legacy.setActive(true);legacy.update(65535);
+            check(ov.calls==1 && ov.effect.duration==150);
+            check(ov.attributes==null && ov.audioAttributes.usage==android.media.AudioAttributes.USAGE_MEDIA);
+            legacy.update(0);check(ov.cancels==1);
+        } finally { Build.VERSION.SDK_INT=33; }
     }
 }

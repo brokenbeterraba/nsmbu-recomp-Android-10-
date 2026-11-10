@@ -484,7 +484,9 @@ public class SetupActivity extends Activity {
     private void control(String action) {
         try {
             actionMessage = null;
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            // Android 12 and older show notifications without asking; the permission starts at Android 13.
+            if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                 requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, 1);
             SetupService.start(this, action);
         } catch (Exception failure) { actionMessage = "Cannot start setup: " + failure.getMessage(); }

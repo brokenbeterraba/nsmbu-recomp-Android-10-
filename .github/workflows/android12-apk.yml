@@ -1,0 +1,102 @@
+# Builds the setup APK for arm64 phones (Android 12 and newer) and keeps it as a downloadable artifact.
+# Run it by hand: Actions > android12-apk > Run workflow. No secrets are needed: without a signing key the
+# APK is signed with a throwaway debug key (install it over nothing; a later build from this workflow will not
+# install over it unless the same debug key is used, so uninstall first and export your save from the app icon).
+#
+# It runs the same steps as the arm64 job of release.yml (same pinned NDK, compiler release and checks),
+# without the version job, the x86_64 build and publishing. The APK carries no game files and no game code.
+name: android12-apk
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      VERSION: v0.9.1-android12
+      ABI: arm64-v8a
+      NDK_VERSION: 30.0.16248370
+      APK: dist/NSMBU-android12-arm64.apk
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Submodules
+        run: git submodule update --init vendor/luajit vendor/fmt vendor/imgui vendor/xxHash vendor/metal-cpp
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Validate the Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Install the NDK and SDK packages
+        timeout-minutes: 15
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Compiler that runs on Android (android-clang release)
+        uses: ./.github/actions/android-compiler
+        with:
+          abi: ${{ env.ABI }}
+
+      - name: Compiler files for the APK
+        run: python3 tools/android/package_toolchain.py --compiler build/compiler/package --out build/compiler/apk-package
+
+      - name: Runtime, extractor and runtime SDK (placeholder game code, only to build the runtime)
+        run: |
+          python3 recomp/stubgen.py build/gen-stub
+          GEN_DIR="$PWD/build/gen-stub" ANDROID_SDK="$ANDROID_HOME" ABI="$ABI" JOBS=4 runtime/android/build_native.sh
+          cmake --build runtime/android/build/game --target nsmbu-extract --parallel 4
+          NDK="$ANDROID_HOME/ndk/$NDK_VERSION"
+          python3 tools/android/package_extractor.py --build runtime/android/build/game --ndk "$NDK" --abi "$ABI" --out build/extractor-apk
+          python3 tools/android/package_runtime.py --build runtime/android/build/game --ndk "$NDK" --abi "$ABI" --out build/runtime-sdk --version "$VERSION"
+          rm "runtime/android/app/libs/$ABI/libmain.so"
+          ls -la "runtime/android/app/libs/$ABI"
+
+      - name: Cache the official CPython Android build (checksum-pinned in prepare_python.py)
+        uses: actions/cache@v5
+        with:
+          path: build/embedded-python/python.tar.gz
+          key: android-cpython-${{ env.ABI }}-${{ hashFiles('tools/android/prepare_python.py') }}
+
+      - name: Embedded Python and setup (no test fixtures)
+        run: |
+          python3 tools/android/prepare_python.py --abi "$ABI" --ndk "$ANDROID_HOME/ndk/$NDK_VERSION" \
+            --out build/embedded-python --runtime-sdk build/runtime-sdk
+
+      - name: Release APK (throwaway debug signing key)
+        run: |
+          runtime/android/gradlew -p runtime/android --no-daemon -PnsmbuAbi="$ABI" -PnsmbuVersionName="${VERSION#v}" \
+            -PnsmbuVersionCode="${{ github.run_number }}" \
+            -PnsmbuPythonDir="$PWD/build/embedded-python/package" -PnsmbuToolchainDir="$PWD/build/compiler/apk-package" \
+            -PnsmbuExtractorDir="$PWD/build/extractor-apk" assembleRelease
+          mkdir -p dist
+          cp runtime/android/app/build/outputs/apk/release/app-release.apk "$APK"
+          ls -la dist
+
+      - name: Guard (no game code, game files, keys or test fixtures) and minimum Android version
+        run: |
+          python3 tools/release/guard.py "$APK"
+          if unzip -l "$APK" | grep -E ' lib/[^/]+/libmain\.so$'; then echo "::error::libmain.so in the APK"; exit 1; fi
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK" | grep -E "^package|sdkVersion|targetSdkVersion"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt2" dump badging "$APK" | grep -q "^sdkVersion:'31'" \
+            || { echo "::error::the APK minimum is not Android 12 (sdkVersion 31)"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nsmbu-android12-arm64-apk
+          path: dist/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

@@ -66,7 +66,7 @@ game files, no game code and no keys: the installer builds the game on your mach
 | Windows 10/11, x86-64 (`windows-x86_64`) or ARM64 (`windows-arm64`), Vulkan | `NSMBU.exe` |
 | macOS 14+, Apple Silicon | `NSMBU.app` |
 | Linux, x86-64 or arm64, glibc 2.35+, Vulkan | `nsmbu-launcher` |
-| Android 13+, arm64, Vulkan | `android-arm64.apk` |
+| Android 12+, arm64, Vulkan | `android-arm64.apk` |
 
 Download the zip for your system, unzip it anywhere and start that file. The first start builds the
 game once and can take a few minutes; later starts go straight to the game. The game, saves and
